@@ -75,7 +75,7 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, launchDire
         const ay = relativeSpeed > 1e-6 ? -g - (dragAccel * (relativeVy / relativeSpeed)) : -g;
         const az = relativeSpeed > 1e-6 ? -dragAccel * (relativeVz / relativeSpeed) : 0;
 
-        // Update velocities using Euler integration
+        // Semi-implicit Euler: update velocity before position.
         velocity.vx += ax * timeStep;
         velocity.vy += ay * timeStep;
         velocity.vz += az * timeStep;
@@ -339,7 +339,7 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
             z: totalForce.z / mass
         };
 
-        // --- Euler Integration ---
+        // --- Semi-implicit Euler Integration ---
         velocity.vx += acceleration.x * dt;
         velocity.vy += acceleration.y * dt;
         velocity.vz += acceleration.z * dt;
@@ -414,8 +414,12 @@ document.addEventListener('DOMContentLoaded', () => {
         themeToggle: document.getElementById('theme-toggle'),
         projectileTab: document.getElementById('projectile-tab'),
         rocketTab: document.getElementById('rocket-tab'),
+        physicsTab: document.getElementById('physics-tab'),
         projectilePanel: document.getElementById('projectile-panel'),
         rocketPanel: document.getElementById('rocket-panel'),
+        physicsPanel: document.getElementById('physics-panel'),
+        controlsContent: document.getElementById('controls-content'),
+        resultsArea: document.querySelector('.results-area'),
         projectileType: document.getElementById('projectile-type'),
         view3DToggle: null, // Will be created dynamically
         projectileForm: document.getElementById('projectile-form'),
@@ -543,6 +547,7 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.themeToggle.addEventListener('click', toggleTheme);
         DOMElements.projectileTab.addEventListener('click', () => switchSimulationType('projectile'));
         DOMElements.rocketTab.addEventListener('click', () => switchSimulationType('rocket'));
+        DOMElements.physicsTab.addEventListener('click', () => switchControlTab('physics'));
         DOMElements.runButton.addEventListener('click', runSimulation);
         DOMElements.mobileControlsToggle.addEventListener('click', toggleMobileControls);
         DOMElements.mobileControlsClose.addEventListener('click', closeMobileControls);
@@ -730,17 +735,51 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- SIMULATION TYPE ---
+    function setPhysicsGuideView(isPhysics) {
+        if (isPhysics) {
+            DOMElements.resultsArea.appendChild(DOMElements.physicsPanel);
+            DOMElements.physicsPanel.hidden = false;
+            DOMElements.physicsPanel.classList.add('physics-main-guide');
+            Array.from(DOMElements.resultsArea.children).forEach(element => {
+                if (element !== DOMElements.physicsPanel) {
+                    element.classList.add('physics-view-hidden');
+                }
+            });
+            return;
+        }
+
+        DOMElements.controlsContent.insertBefore(DOMElements.physicsPanel, DOMElements.formError);
+        DOMElements.physicsPanel.hidden = true;
+        DOMElements.physicsPanel.classList.remove('physics-main-guide');
+        Array.from(DOMElements.resultsArea.children).forEach(element => {
+            element.classList.remove('physics-view-hidden');
+        });
+    }
+
+    function switchControlTab(tab) {
+        const isPhysics = tab === 'physics';
+        const isProjectile = state.simulationType === 'projectile';
+
+        DOMElements.projectileTab.classList.toggle('active', !isPhysics && isProjectile);
+        DOMElements.projectileTab.setAttribute('aria-selected', !isPhysics && isProjectile);
+        DOMElements.rocketTab.classList.toggle('active', !isPhysics && !isProjectile);
+        DOMElements.rocketTab.setAttribute('aria-selected', !isPhysics && !isProjectile);
+        DOMElements.physicsTab.classList.toggle('active', isPhysics);
+        DOMElements.physicsTab.setAttribute('aria-selected', isPhysics);
+        DOMElements.projectilePanel.hidden = isPhysics || !isProjectile;
+        DOMElements.rocketPanel.hidden = isPhysics || isProjectile;
+        DOMElements.physicsPanel.hidden = !isPhysics;
+        setPhysicsGuideView(isPhysics);
+        document.querySelector('.view-toggle')?.toggleAttribute('hidden', isPhysics);
+        DOMElements.formError.hidden = isPhysics || DOMElements.formError.hidden;
+        document.querySelector('.control-actions')?.toggleAttribute('hidden', isPhysics);
+    }
+
     function switchSimulationType(type) {
         state.simulationType = type;
         const isProjectile = type === 'projectile';
 
-        DOMElements.projectileTab.classList.toggle('active', isProjectile);
-        DOMElements.projectileTab.setAttribute('aria-selected', isProjectile);
-        DOMElements.rocketTab.classList.toggle('active', !isProjectile);
-        DOMElements.rocketTab.setAttribute('aria-selected', !isProjectile);
-
-        DOMElements.projectilePanel.hidden = !isProjectile;
-        DOMElements.rocketPanel.hidden = isProjectile;
+        switchControlTab(type);
 
         DOMElements.rocketOnlyElements.forEach(el => el.hidden = isProjectile);
 

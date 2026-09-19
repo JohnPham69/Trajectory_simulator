@@ -86,6 +86,11 @@
           aria-controls="rocket-panel" data-simulation="rocket">
           V-2 Rocket
         </button>
+
+        <button id="physics-tab" class="tab-button" type="button" role="tab" aria-selected="false"
+          aria-controls="physics-panel">
+          Laws &amp; equations
+        </button>
       </div>
 
       <!-- =======================================================
@@ -337,6 +342,117 @@
             </fieldset>
           </details>
         </form>
+      </section>
+
+      <section id="physics-panel" class="parameter-panel physics-panel" role="tabpanel" aria-labelledby="physics-tab"
+        hidden>
+        <div class="physics-intro">
+          <p class="section-label">Physics guide</p>
+          <h3>What the simulator calculates</h3>
+          <p>
+            The simulator checks the forces acting on the projectile or rocket a
+            small step at a time. The equations below are written in the same
+            ideas as the code, with a plain-language explanation for learners.
+          </p>
+        </div>
+
+        <article class="equation-card">
+          <h3>1. Newton's second law</h3>
+          <p class="equation"><i>F</i><sub>net</sub> = <i>m</i><i>a</i></p>
+          <p>
+            A net force is the overall push after all pushes and pulls are
+            combined. A bigger force creates more acceleration; a heavier object
+            accelerates less for the same force. The rocket uses this to combine
+            thrust, drag, and gravity.
+          </p>
+        </article>
+
+        <article class="equation-card">
+          <h3>2. Gravity</h3>
+          <p class="equation"><i>F</i><sub>gravity</sub> = <i>m</i><i>g</i></p>
+          <p>
+            Gravity pulls the vehicle downward. Near Earth's surface, <i>g</i> is
+            about 9.81 m/s<sup>2</sup>, so downward speed changes by about 9.81
+            m/s every second when other forces are ignored. For the rocket, the
+            value becomes a little smaller higher above Earth.
+          </p>
+        </article>
+
+        <article class="equation-card">
+          <h3>3. Air resistance (drag)</h3>
+          <p class="equation"><i>F</i><sub>drag</sub> = ½<i>C</i><sub>d</sub>ρ<i>A</i><i>v</i><sup>2</sup></p>
+          <p>
+            Drag is air pushing against motion. It grows quickly with speed: if
+            speed doubles, drag is about four times larger. <i>C</i><sub>d</sub>
+            describes shape, ρ is air density, and <i>A</i> is the front-facing
+            area. The code points this force opposite to the air-relative motion,
+            including wind.
+          </p>
+        </article>
+
+        <article class="equation-card">
+          <h3>4. Launch velocity</h3>
+          <p class="equation"><i>v</i><sub>x</sub> = <i>v</i> cos θ &nbsp;&nbsp; <i>v</i><sub>y</sub> = <i>v</i> sin θ</p>
+          <p>
+            The launch speed is split into a sideways part and an upward part.
+            The angle θ decides the split: a steep angle gives more upward speed,
+            while a shallow angle gives more sideways speed.
+          </p>
+        </article>
+
+        <article class="equation-card">
+          <h3>5. Rocket mass and thrust</h3>
+          <p class="equation">mass used each second = (<i>m</i><sub>start</sub> − <i>m</i><sub>end</sub>) / burn time</p>
+          <p>
+            During a burn, fuel is used at a steady rate in this model, so the
+            rocket gets lighter. Thrust is pointed along the rocket's pitch angle
+            and is turned off when the burn ends. A lighter rocket can gain more
+            acceleration from the same thrust.
+          </p>
+        </article>
+
+        <article class="equation-card">
+          <h3>6. Air, sound, and Mach number</h3>
+          <p class="equation">ρ = <i>P</i> / (<i>R</i><i>T</i>) &nbsp;&nbsp; <i>a</i> = √(γ<i>R</i><i>T</i>) &nbsp;&nbsp; Mach = <i>v</i> / <i>a</i></p>
+          <p>
+            Higher altitude usually means thinner air, so the rocket experiences
+            less drag. The speed of sound depends on air temperature. Mach number
+            tells us how fast the rocket is compared with sound: Mach 1 means the
+            same speed as sound.
+          </p>
+        </article>
+
+        <article class="equation-card">
+          <h3>7. Integration methods</h3>
+          <p>
+            Integration is the computer's way of moving the simulation forward
+            through time. We used three approaches to calculate the next position
+            and velocity from the current forces:
+          </p>
+          <p class="equation">Explicit Euler: &nbsp; <i>v</i><sub>next</sub> = <i>v</i> + <i>a</i>Δ<i>t</i>, &nbsp; <i>x</i><sub>next</sub> = <i>x</i> + <i>v</i>Δ<i>t</i></p>
+          <p>
+            <strong>Explicit Euler</strong> uses the old velocity to find the new
+            position. It is simple and fast, but large time steps can make the
+            path less accurate or unstable.
+          </p>
+          <p class="equation">Semi-implicit Euler: &nbsp; <i>v</i><sub>next</sub> = <i>v</i> + <i>a</i>Δ<i>t</i>, &nbsp; <i>x</i><sub>next</sub> = <i>x</i> + <i>v</i><sub>next</sub>Δ<i>t</i></p>
+          <p>
+            <strong>Semi-implicit Euler</strong> updates velocity first, then uses
+            that new velocity to update position. This is the update order used
+            by the current simulator, and it often behaves better for motion
+            than basic explicit Euler.
+          </p>
+          <p class="equation">RK4: &nbsp; next state ≈ current state + weighted average of 4 slope estimates</p>
+          <p>
+            <strong>Runge-Kutta 4 (RK4)</strong> checks the slope of the motion at
+            four points during one time step, then combines them. It is usually
+            more accurate, but requires more force calculations and computer time.
+          </p>
+          <p>
+            In every method, Δ<i>t</i> is the time step. Smaller steps usually
+            improve accuracy, but they also make the computer do more work.
+          </p>
+        </article>
       </section>
 
       <div id="form-error" class="form-message error-message" role="alert" hidden></div>
