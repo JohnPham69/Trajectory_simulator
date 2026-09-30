@@ -95,10 +95,30 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, launchDire
             ...velocity,
             speed: Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2 + velocity.vz ** 2)
         });
-
+        
         if (time > timeStep && velocity.vy <= 0 && position.y < groundHeightAtX(position.x, position.z)) {
-            break;
-        }
+          const prevPoint = data[data.length - 2];
+          const currPoint = data[data.length - 1];
+      
+          if (prevPoint) {
+              const targetY = groundHeightAtX(position.x, position.z);
+              const alpha = (prevPoint.y - targetY) / (prevPoint.y - currPoint.y);
+      
+              data[data.length - 1] = {
+                  time: Number((prevPoint.time + alpha * (currPoint.time - prevPoint.time)).toFixed(4)),
+                  x: Number((prevPoint.x + alpha * (currPoint.x - prevPoint.x)).toFixed(2)),
+                  y: Number(targetY.toFixed(2)), // Đảm bảo y không bị âm
+                  z: Number((prevPoint.z + alpha * (currPoint.z - prevPoint.z)).toFixed(2)),
+                  vx: Number((prevPoint.vx + alpha * (currPoint.vx - prevPoint.vx)).toFixed(2)),
+                  vy: Number((prevPoint.vy + alpha * (currPoint.vy - prevPoint.vy)).toFixed(2)),
+                  vz: Number((prevPoint.vz + alpha * (currPoint.vz - prevPoint.vz)).toFixed(2)),
+                  speed: Number((prevPoint.speed + alpha * (currPoint.speed - prevPoint.speed)).toFixed(2)),
+                  is_interpolated: true
+              };
+          }
+      
+          break;
+      }
     }
 
     return { data };
@@ -133,10 +153,11 @@ const cdTable = Object.values(V2_DRAG_COEFFICIENTS);
  * @returns {number} The interpolated value.
  */
 function interp(x, xp, fp) {
-    const i = xp.findIndex(val => val > x) - 1;
-    if (i < 0) return fp[0];
-    if (i >= xp.length - 1) return fp[fp.length - 1];
-    return fp[i] + (fp[i + 1] - fp[i]) * ((x - xp[i]) / (xp[i + 1] - xp[i]));
+    if (x <= xp[0]) return fp[0];
+    if (x >= xp[xp.length - 1]) return fp[fp.length - 1];
+    let i = 0;
+    while (xp[i + 1] <= x) i++;
+    return fp[i] + (x - xp[i]) * (fp[i + 1] - fp[i]) / (xp[i + 1] - xp[i]);
 }
 
 /**
@@ -367,10 +388,32 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
             pitchAngle,
             flightAngle
         });
-
+        
         if (stopAtGround && time > dt && velocity.vy <= 0 && position.y < groundHeightAtX(position.x, position.z)) {
-            break;
-        }
+          const prevPoint = data[data.length - 2];
+          const currPoint = data[data.length - 1];
+      
+          if (prevPoint) {
+              const targetY = groundHeightAtX(position.x, position.z);
+              const alpha = (prevPoint.y - targetY) / (prevPoint.y - currPoint.y);
+      
+              data[data.length - 1] = {
+                  ...currPoint,
+                  time: Number((prevPoint.time + alpha * (currPoint.time - prevPoint.time)).toFixed(4)),
+                  x: Number((prevPoint.x + alpha * (currPoint.x - prevPoint.x)).toFixed(2)),
+                  y: Number(targetY.toFixed(2)),
+                  z: Number((prevPoint.z + alpha * (currPoint.z - prevPoint.z)).toFixed(2)),
+                  vx: Number((prevPoint.vx + alpha * (currPoint.vx - prevPoint.vx)).toFixed(2)),
+                  vy: Number((prevPoint.vy + alpha * (currPoint.vy - prevPoint.vy)).toFixed(2)),
+                  vz: Number((prevPoint.vz + alpha * (currPoint.vz - prevPoint.vz)).toFixed(2)),
+                  speed: Number((prevPoint.speed + alpha * (currPoint.speed - prevPoint.speed)).toFixed(2)),
+                  mach: Number((prevPoint.mach + alpha * (currPoint.mach - prevPoint.mach)).toFixed(2)),
+                  is_interpolated: true
+              };
+          }
+      
+          break;
+      }
         
         // Safety break for very long or failed simulations
         if (time > maxTime) { 
