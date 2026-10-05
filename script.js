@@ -23,6 +23,16 @@ const PROJECTILE_PRESETS = {
 
 const ROCKET_DISPLAY_SCALE = 0.25;
 
+function rk4Step(time, state, dt, derivative) {
+    const addScaled = (base, slope, scale) => base.map((value, index) => value + slope[index] * scale);
+    const k1 = derivative(time, state);
+    const k2 = derivative(time + dt / 2, addScaled(state, k1, dt / 2));
+    const k3 = derivative(time + dt / 2, addScaled(state, k2, dt / 2));
+    const k4 = derivative(time + dt, addScaled(state, k3, dt));
+
+    return state.map((value, index) => value + (dt / 6) * (k1[index] + 2 * k2[index] + 2 * k3[index] + k4[index]));
+}
+
 /**
  * Simulates the trajectory of a simple shell with constant mass.
  * @param {object} params - The parameters for the simulation.
@@ -61,32 +71,41 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, launchDire
     let time = 0;
 
     while (true) {
-        const relativeVx = velocity.vx - windVx;
-        const relativeVy = velocity.vy - windVy;
-        const relativeVz = velocity.vz - windVz;
-        const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
-        
-        // Correctly calculate drag force based on total speed
-        const dragForce = 0.5 * dragCoefficient * airDensity * referenceArea * relativeSpeed ** 2;
-        
-        // Drag acceleration opposes the velocity vector
-        const dragAccel = dragForce / mass;
-        const ax = relativeSpeed > 1e-6 ? -dragAccel * (relativeVx / relativeSpeed) : 0;
-        const ay = relativeSpeed > 1e-6 ? -g - (dragAccel * (relativeVy / relativeSpeed)) : -g;
-        const az = relativeSpeed > 1e-6 ? -dragAccel * (relativeVz / relativeSpeed) : 0;
+        const derivative = (_stageTime, state) => {
+            const [x, y, z, vx, vy, vz] = state;
+            const relativeVx = vx - windVx;
+            const relativeVy = vy - windVy;
+            const relativeVz = vz - windVz;
+            const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
+            const dragForce = 0.5 * dragCoefficient * airDensity * referenceArea * relativeSpeed ** 2;
+            const dragAccel = dragForce / mass;
 
-        // Semi-implicit Euler: update velocity before position.
-        velocity.vx += ax * timeStep;
-        velocity.vy += ay * timeStep;
-        velocity.vz += az * timeStep;
-
-        // Update positions
-        position = {
-            x: position.x + velocity.vx * timeStep,
-            y: position.y + velocity.vy * timeStep,
-            z: position.z + velocity.vz * timeStep
+            return [
+                vx,
+                vy,
+                vz,
+                relativeSpeed > 1e-6 ? -dragAccel * relativeVx / relativeSpeed : 0,
+                -g - (relativeSpeed > 1e-6 ? dragAccel * relativeVy / relativeSpeed : 0),
+                relativeSpeed > 1e-6 ? -dragAccel * relativeVz / relativeSpeed : 0
+            ];
         };
 
+        // Previous Semi-implicit Euler method, retained for reference:
+        // const relativeVx = velocity.vx - windVx;
+        // const relativeVy = velocity.vy - windVy;
+        // const relativeVz = velocity.vz - windVz;
+        // const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
+        // const dragForce = 0.5 * dragCoefficient * airDensity * referenceArea * relativeSpeed ** 2;
+        // const dragAccel = dragForce / mass;
+        // velocity.vx += (relativeSpeed > 1e-6 ? -dragAccel * relativeVx / relativeSpeed : 0) * timeStep;
+        // velocity.vy += (-g - (relativeSpeed > 1e-6 ? dragAccel * relativeVy / relativeSpeed : 0)) * timeStep;
+        // velocity.vz += (relativeSpeed > 1e-6 ? -dragAccel * relativeVz / relativeSpeed : 0) * timeStep;
+        // position.x += velocity.vx * timeStep;
+        // position.y += velocity.vy * timeStep;
+        // position.z += velocity.vz * timeStep;
+
+        const nextState = rk4Step(time, [position.x, position.y, position.z, velocity.vx, velocity.vy, velocity.vz], timeStep, derivative);
+        [position.x, position.y, position.z, velocity.vx, velocity.vy, velocity.vz] = nextState;
         time += timeStep;
 
         data.push({
@@ -301,54 +320,70 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
 
     let burnoutAltitude = -1;
 
+    const massAt = (stageTime) => stageTime < burnTime
+        ? Math.max(endMass, initialMass - massFlowRate * stageTime)
+        : endMass;
+
     // Main simulation loop
     while (true) {
-        // Determine current state
-        const inBurnPhase = time < burnTime;
-        const currentThrust = inBurnPhase ? thrust * (powerPercent / 100) : 0.0;
-        if (inBurnPhase) {
-            mass = Math.max(endMass, initialMass - massFlowRate * time);
-        }
         if (burnoutAltitude < 0 && time >= burnTime) {
             burnoutAltitude = position.y;
         }
 
-        // --- Forces Calculation ---
+        const azimuthRad = (rocketLaunchDirection * Math.PI) / 180;
+        const derivative = (stageTime, state) => {
+            const [, altitude, , vx, vy, vz] = state;
+            const stageMass = massAt(stageTime);
+            const stageThrust = stageTime < burnTime ? thrust * (powerPercent / 100) : 0;
+            const pitchAngle = getPitchAngle(stageTime, pitchStart, pitchEnd, startAngle, endAngle);
+            const pitchAngleRad = (pitchAngle * Math.PI) / 180;
+            const relativeVx = vx - windVx;
+            const relativeVy = vy - windVy;
+            const relativeVz = vz - windVz;
+            const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
+            const dragForce = relativeSpeed > 1e-6
+                ? calculateDragForce(relativeSpeed, altitude, frontalArea)
+                : 0;
+            const dragX = relativeSpeed > 1e-6 ? -dragForce * relativeVx / relativeSpeed : 0;
+            const dragY = relativeSpeed > 1e-6 ? -dragForce * relativeVy / relativeSpeed : 0;
+            const dragZ = relativeSpeed > 1e-6 ? -dragForce * relativeVz / relativeSpeed : 0;
+            const horizontalThrust = stageThrust * Math.cos(pitchAngleRad);
 
-        // Thrust Vector (with both pitch and azimuth angles)
+            return [
+                vx,
+                vy,
+                vz,
+                (horizontalThrust * Math.cos(azimuthRad) + dragX) / stageMass,
+                (stageThrust * Math.sin(pitchAngleRad) + dragY) / stageMass - calculateGravity(altitude),
+                (horizontalThrust * Math.sin(azimuthRad) + dragZ) / stageMass
+            ];
+        };
+
+        /* Previous Semi-implicit Euler implementation, retained for reference:
+        const inBurnPhase = time < burnTime;
+        const currentThrust = inBurnPhase ? thrust * (powerPercent / 100) : 0.0;
+        if (inBurnPhase) mass = Math.max(endMass, initialMass - massFlowRate * time);
+
         const pitchAngle = getPitchAngle(time, pitchStart, pitchEnd, startAngle, endAngle);
         const pitchAngleRad = (pitchAngle * Math.PI) / 180;
-        const azimuthRad = (rocketLaunchDirection * Math.PI) / 180;
         const horizontalThrust = currentThrust * Math.cos(pitchAngleRad);
         const thrustVector = {
             x: horizontalThrust * Math.cos(azimuthRad),
             y: currentThrust * Math.sin(pitchAngleRad),
             z: horizontalThrust * Math.sin(azimuthRad)
         };
-
-        // Drag Vector
         const relativeVx = velocity.vx - windVx;
         const relativeVy = velocity.vy - windVy;
         const relativeVz = velocity.vz - windVz;
         const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
-        let dragVector = { x: 0, y: 0, z: 0 };
-        let dragForce = 0;
+        const dragVector = { x: 0, y: 0, z: 0 };
         if (relativeSpeed > 1e-6) {
-            dragForce = calculateDragForce(relativeSpeed, position.y, frontalArea);
-            dragVector = {
-                x: -dragForce * (relativeVx / relativeSpeed),
-                y: -dragForce * (relativeVy / relativeSpeed),
-                z: -dragForce * (relativeVz / relativeSpeed)
-            };
+            const dragForce = calculateDragForce(relativeSpeed, position.y, frontalArea);
+            dragVector.x = -dragForce * relativeVx / relativeSpeed;
+            dragVector.y = -dragForce * relativeVy / relativeSpeed;
+            dragVector.z = -dragForce * relativeVz / relativeSpeed;
         }
-
-        // Gravity Vector
-        const gravityVector = {
-            x: 0.0,
-            y: -mass * calculateGravity(position.y)
-        };
-
-        // Total Force and Acceleration
+        const gravityVector = { x: 0, y: -mass * calculateGravity(position.y), z: 0 };
         const totalForce = {
             x: thrustVector.x + dragVector.x + gravityVector.x,
             y: thrustVector.y + dragVector.y + gravityVector.y,
@@ -359,18 +394,24 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
             y: totalForce.y / mass,
             z: totalForce.z / mass
         };
-
-        // --- Semi-implicit Euler Integration ---
         velocity.vx += acceleration.x * dt;
         velocity.vy += acceleration.y * dt;
         velocity.vz += acceleration.z * dt;
         position.x += velocity.vx * dt;
         position.y += velocity.vy * dt;
         position.z += velocity.vz * dt;
-
+        */
+        const nextState = rk4Step(time, [position.x, position.y, position.z, velocity.vx, velocity.vy, velocity.vz], dt, derivative);
+        [position.x, position.y, position.z, velocity.vx, velocity.vy, velocity.vz] = nextState;
         time += dt;
 
         // --- Data Storage & Progress ---
+        mass = massAt(time);
+        const pitchAngle = getPitchAngle(time, pitchStart, pitchEnd, startAngle, endAngle);
+        const relativeVx = velocity.vx - windVx;
+        const relativeVy = velocity.vy - windVy;
+        const relativeVz = velocity.vz - windVz;
+        const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
         const speed = Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2 + velocity.vz ** 2);
         const mach = calculateMachNumber(relativeSpeed, position.y);
         const cd = calculateDragCoefficient(relativeSpeed, position.y);
@@ -559,7 +600,7 @@ document.addEventListener('DOMContentLoaded', () => {
         create3DViewToggle();
         if (window.matchMedia('(max-width: 680px)').matches) closeMobileControls();
         resetUI();
-        updateCharts([]); // Create empty charts on load so target can be set
+        updateCharts([]); // Create empty charts on load
     }
 
     function create3DViewToggle() {
@@ -581,7 +622,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // --- EVENT LISTENERS ---
     function setupEventListeners() {
-        DOMElements.trajectoryChartCanvas.addEventListener('click', onChartClick);
         DOMElements.threeCanvas.addEventListener('pointerdown', on3DMapPointerDown);
         DOMElements.threeCanvas.addEventListener('pointermove', on3DMapPointerMove);
         DOMElements.threeCanvas.addEventListener('pointerup', on3DMapPointerUp);
@@ -625,28 +665,6 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.controlPanel.classList.remove('mobile-controls-open');
         DOMElements.mobileControlsToggle.setAttribute('aria-expanded', 'false');
         DOMElements.controlPanel.setAttribute('aria-hidden', 'true');
-    }
-
-    function onChartClick(event) {
-        const chart = state.charts.trajectory;
-        if (!chart || state.animationFrameId) return; // Don't set target while running
-    
-        const rect = chart.canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-    
-        // Convert pixel coordinates to data coordinates
-        const dataX = chart.scales.x.getValueForPixel(x);
-        const dataY = chart.scales.y.getValueForPixel(y);
-    
-        // Ensure target is within the valid gameplay area
-        if (dataX < 0 || dataY < 0) return;
-    
-        state.target = { x: dataX, y: dataY };
-        drawTarget(); // Draw the new target immediately
-        if (state.simulationType === 'projectile') {
-            setUIState('target-selected');
-        }
     }
 
     function on3DMapClick(event) {
